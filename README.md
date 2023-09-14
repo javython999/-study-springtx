@@ -37,5 +37,20 @@
 * ```AopUtils.isAopProxy()```를 통해 AOP 프록시가 적용되었는지 확인할 수 있다.
 * ```TransactionSynchronizationManager.isActualTransactionActive()```를 사용하면 현재 트랜잭션이 적용되고 있는지 Boolean값이 return된다.
 ***
+### 트랜잭션 적용 위치
+스프링에서 우선순위는 항상 **더 구체적이고 자세한 것이 높은 우선순위를 가진다.**
+예를 들어 메서드와 클래스에 애노테이션을 붙일 수 있다면 더 구체적인 메서드가 더 높은 우선순위를 가진다.
+인터페이스와 해당 인터페이스를 구현한 클래스에 애노테이션을붙일 수 있다면 더 구체적인 클래스가 더 높은 우선순위를 가진다.
+
+
+스프링의 ```@Transactional```은 두 가지 규칙이 있다.
+1. 우선순위 규칙
+   * 클래스에 ```@Transactional(readOnly = true)```, 메서드에 ```@Transactional(readOnly = false)``` 적용시
+   더 구체적인 메서드의 ```@Transactional(readOnly = false)```가 적용된다.
+2. 클래스에 적용하면 메서드는 자동 적용
+   * 클래스에 ```@Transcational(readOnly = true)``` 적용시 클래스에 ```@Transational``` 애노테이션이 없어도 자동으로 적용된다.
+
+
+
 
 
