@@ -49,8 +49,75 @@
    더 구체적인 메서드의 ```@Transactional(readOnly = false)```가 적용된다.
 2. 클래스에 적용하면 메서드는 자동 적용
    * 클래스에 ```@Transcational(readOnly = true)``` 적용시 클래스에 ```@Transational``` 애노테이션이 없어도 자동으로 적용된다.
+***
+### 트랜잭션 AOP 주의사항 - 프록시 내부 호출
+```@Transactional```을 사용하면 스프링 트랜잭션 AOP가 적용된다.
+트랜잭션 AOP는 기본적으로 프록시 방식의 AOP를 사용한다.
+프록시 객체가 요청을 먼저 받아서 트랜잭션을 처리하고, 실제 객체를 호출해준다.
+
+아래와 같이 ```@Transactional```애노테이션이 없는 메서드와  ```@Transactional```애노테이션이 있는 메서드를 가지고 있는 클래스가 있을 때
+```java
+class CallService {
+    public void external() {
+        log.info("call external");
+        internal();
+    }
+
+    @Transactional
+    public void internal() {
+        log.info("call internal");
+    }
+}
+```
+
+```internal()```을 호출하게 되면 ```@Transactional```애노테이션이 있기 때문에 ```CallService```의 프록시 객체가 요청을 받아서 처리하게 된다.
+```external()```을 호출하게 되면 ```@Transactional```애노테이션이 없기 때문에 프록시 객체가 아닌 실제 ```CallService```객체가 요청을 처리하게 되고
+실제```CallService```의 ```internal()```가 호출이 되기 때문에 트랜잭션이 적용이 되지 않는다.
+ 
+이 문제를 해결하기 위한 방법으로 트랜잭션을 처리하는 별도의 클래스로 분리하는 방법이 있다.
+```java
+class CallService {     
+    private final InternalService internalService;
+    
+    public void external() {
+        log.info("call external");
+        internalService.internal();
+    }
+}
+
+class InternalService { 
+    @Transactional
+    public void internal() {
+        log.info("call internal");
+    }
+}
+```
+```external()```이 호출되면 실제 ```CallService``` 객체가 요청을 처리하게 된다.
+요청 처리중 ```internalService.internal()```을 호출하게 되면 ```internalService```의 프록시 객체가 요청을 처리하게 되고
+트랜잭션이 처리된다.
+
+#### public 메서드만 트랜잭션 적용
+스프링의 트랜잭션 AOP 기능은 ```public``` 메서드에만 트랜잭션을 적용하도록 기본 설정이 되어있다.
+그래서 ```protected``` , ```private``` , ```package-visible``` 에는 트랜잭션이 적용되지 않는다. 생각해보면
+```protected``` , ```package-visible``` 도 외부에서 호출이 가능하다. 따라서 이 부분은 앞서 설명한 프록시의
+내부 호출과는 무관하고, 스프링이 막아둔 것이다.
 
 
-
+스프링이 ```public```에만 트랜잭션을 적용하는 이유는 다음과 같다.
+```java
+@Transactional
+public class Hello { 
+    public method1();
+    method2():
+    protected method3();
+    private method4();
+}
+```
+* 이렇게 클래스 레벨에 트랜잭션을 적용하면 모든 메서드에 트랜잭션이 걸릴 수 있다. 그러면 트랜잭션을
+  의도하지 않는 곳 까지 트랜잭션이 과도하게 적용된다. 트랜잭션은 주로 비즈니스 로직의 시작점에 걸기
+  때문에 대부분 외부에 열어준 곳을 시작점으로 사용한다. 이런 이유로 ```public``` 메서드에만 트랜잭션을
+  적용하도록 설정되어 있다.
+* ```public``` 이 아닌곳에 ```@Transactional``` 이 붙어 있으면 예외가 발생하지는 않고, 트랜잭션 적용만
+  무시된다
 
 
