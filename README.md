@@ -230,3 +230,73 @@ public class TxService {
 > * 비즈니스 예외: 주문 결제시 잔고가 부족하면 주문 데이터를 저장하고 결제 상태를 ``대기``로 처리한다.
 >   * 이 경우 고객에게 잔고 부족을 알리고 별도의 계좌로 입금하도록 안내한다.
 ***
+### 스프링 트랜잭션 전파 - 전파 기본
+트랜잭션을 각각 사용하는 것이 아니라, 트랜잭션이 이미 진행중인데, 여기에 추가로 트랜잭션을 수행하면
+어떻게 될까? 기존 트랜잭션과 별도의 트랜잭션을 진행할까? 아니면 기존 트랜잭션을 그대로 이어 받아서 트랜잭션을 수행해야 할까?
+이런 경우 어떻게 동작할지 결정하는 것을 트랜잭션 전파(propagation)라 한다.
+
+> 외부 트랜잭션이 수행중인데, 내부 트랜잭션이 추가로 수행됨
+>
+> * 외부 트랜잭션이 수행중이고, 아직 끝나지 않았는데, 내부 트랜잭션이 수행된다.
+> * 스프링은 이 경우 외부 트랜잭션과 내부 트랜잭션을 묶어서 하나의 트랜잭션으로 만들어준다. 내부 트랜잭션이 외부 트랜잭션에 참여하는 것이다.
+
+외부 트랜잭션 또는 내부 트랜잭션은 하나의 논리 트랜잭션이다. 이 논리 트랜잭션을 묶어 하나의 물리 트랜잭션으로 만든다.
+물리 트랜잭션은 아래의 원칙을 따른다.
+
+* 모든 논리 트랜잭션이 커밋되어야 물리 트랜잭션이 커밋된다.
+* 하나의 논리 트랜젹선이라도 롤백되면 물리 트랜잭션은 롤백된다.
+
+#### 외부 트랜잭션 커밋 && 내부 트랜잭션 커밋
+```java
+void innerCommit() {
+    log.info("외부 트랜잭션 시작");
+    TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute());
+    log.info("outer.isNewTransaction={}", outer.isNewTransaction()); // true
+
+    log.info("내부 트랜잭션 시작");
+    TransactionStatus inner = txManager.getTransaction(new DefaultTransactionAttribute());
+    log.info("inner.isNewTransaction={}", inner.isNewTransaction()); // false
+    log.info("내부 트랜잭션 커밋");
+    txManager.commit(inner);
+
+    log.info("외부 트랜잭션 커밋");
+    txManager.commit(outer);
+}
+```
+1. 외부 트랜잭션 시작
+2. 내부 트랜잭션 시작
+3. 내부 트랜잭션 커밋
+4. 외부 트랜잭션 커밋
+
+3의 과정에서 트랜잭션 매니저는 트랜잭션의 ``isNewTransaction()``의 여부에 따라 다르게 동작한다.
+``true``인 경우에만 ``commit``을 호출하고 ``false``인 경우 ``commit``을 호출해도 실제 커밋을 호출하지 않는다.
+``commit``이나 ``rollback``을 호출하면 트랜잭션이 종료되는데 위의 코드처럼 되어있는 경우 내부 트랜잭션에서 커밋이 호출되어버리면
+외부 트랜잭션을 처리하지 못하고 트랜잭션이 종료되어버리는 상황이 발생하기 때문이다.
+
+#### 외부 트랜잭션 커밋 && 내부 트랜잭션 롤백
+```java
+void innerRollback() {
+    log.info("외부 트랜잭션 시작");
+    TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute());
+
+    log.info("내부 트랜잭션 시작");
+    TransactionStatus inner = txManager.getTransaction(new DefaultTransactionAttribute());
+    log.info("내부 트랜잭션 롤백");
+    txManager.rollback(inner);
+
+    log.info("외부 트랜잭션 커밋");
+    assertThatThrownBy(()->txManager.commit(outer)).isInstanceOf(UnexpectedRollbackException.class);
+}
+```
+1. 외부 트랜잭션 시작
+2. 내부 트랜잭션 시작
+3. 내부 트랜잭션 롤백
+4. 외부 트랜잭션 커밋 -> ``UnexpectedRollbackException``오류 발생
+
+4의 과정에서 커밋을 호출하면 ``UnexpectedRollbackException``오류가 발생되면서 ``rollback``된다.
+이는 ``하나의 논리 트랜젹선이라도 롤백되면 물리 트랜잭션은 롤백된다``는 원칙을 따른 것이다.
+내부 트랜잭션은 커밋 외부 트랜잭션은 롤백인 경우에도 마찬가지다. 내부 트랜잭션은 ``isNewTransaction()``가 ``false``이기 때문에
+커밋, 롤백을 호출 할 수가 없다.(호출하면 트랜잭션이 종료되어버리기 때문에) 그래서 3의 과정에서 트랜잭션 동기화 매니저에
+``rollbackOnly=true``라는 표시를 해둔다. 이 표시 때문에 4의 과정에서 커밋을 호출하지만 ``rollbackOnly``가 ``true``이기 때문에
+``UnexpectedRollbackException``에러가 발생하게 된다.
+
