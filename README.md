@@ -300,3 +300,93 @@ void innerRollback() {
 ``rollbackOnly=true``라는 표시를 해둔다. 이 표시 때문에 4의 과정에서 커밋을 호출하지만 ``rollbackOnly``가 ``true``이기 때문에
 ``UnexpectedRollbackException``에러가 발생하게 된다.
 
+#### REQUIRES_NEW
+외부 트랜잭션과 내부 트랜잭션을 완전히 분리하면 별도의 물리 트랜잭션을 사용하게 된다.
+내부 트랜잭션이 외부 트랜잭션에게 영향을 주지 않고, 외부 트랜잭션도 내부 트랜잭션에 영향을 주지 않게 된다.
+커밋과 롤백도 각각 별도로 이루어지게 된다. 
+
+```java
+void innerRollbackRequiresNew() {
+    log.info("외부 트랜잭션 시작");
+    TransactionStatus outer = txManager.getTransaction(new DefaultTransactionAttribute());
+    log.info("outer.isNewTransaction={}", outer.isNewTransaction());
+  
+    log.info("내부 트랜잭션 시작");
+    DefaultTransactionAttribute definition = new DefaultTransactionAttribute();
+    definition.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+    TransactionStatus inner = txManager.getTransaction(definition);
+    log.info("inner.isNewTransaction={}", inner.isNewTransaction());
+  
+    log.info("내부 트랜잭션 롤백");
+    txManager.rollback(inner);
+  
+    log.info("외부 트랜잭션 커밋");
+    txManager.commit(outer);
+}
+```
+> ``DefaultTransactionAttribute definition = new DefaultTransactionAttribute();``
+> ``definition.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);``
+
+위 코드로 인해 내부 트랜잭션은 외부 트랜잭션에 참여하는 것이 아니라 새로운 신규 트랜잭션이 생성된다.
+``inner.isNewTransaction()``은 ``true``가 된다.
+
+``txManager.rollback(inner);`` 호출시 내부 트랜잭션은 새로 생성된 트랜잭션이기 때문에
+``rollbackOnly=true``라는 표시를 하지 않고 롤백이 호출된다.
+
+***
+### 스프링 트랜잭션 전파 - 다양한 전파 옵션
+전파 옵션에 별도의 설정을 하지 않으면 ``REQUIRED``가 기본으로 사용된다.
+
+> REQUIRED
+> 
+> 가장 많이 사용하는 기본 설정이다. 기존 트랜잭션이 없으면 생성하고, 있으면 참여한다.
+> * 기존 트랜잭션 없음: 새로운 트랜잭션을 생성한다.
+> * 기존 트랜잭션 있음: 기존 트랜잭션에 참여한다.
+
+> REQUIRES_NEW
+> 
+> 항상 새로운 트랜잭션을 생성한다.
+> * 기존 트랜잭션 없음: 새로운 트랜잭션을 생성한다.
+> * 기존 트랜잭션 있음: 새로운 트랜잭션을 생성한다.
+
+
+> SUPPORT
+> 
+> 트랜잭션을 지원한다는 뜻이다. 기존 트랜잭션이 없으면, 없는대로 진행하고, 있으면 참여한다.
+>
+> * 기존 트랜잭션 없음: 트랜잭션 없이 진행한다.
+> * 기존 트랜잭션 있음: 기존 트랜잭션에 참여한다.
+
+> NOT_SUPPORT
+>
+> 트랜잭션을 지원하지 않는다는 의미이다.
+> * 기존 트랜잭션 없음: 트랜잭션 없이 진행한다.
+> * 기존 트랜잭션 있음: 트랜잭션 없이 진행한다. (기존 트랜잭션은 보류한다)
+
+> MANDATORY
+> 
+> 의무사항이다. 트랜잭션이 반드시 있어야 한다. 기존 트랜잭션이 없으면 예외가 발생한다.
+> * 기존 트랜잭션 없음: ``IllegalTransactionStateException`` 예외 발생
+> * 기존 트랜잭션 있음: 기존 트랜잭션에 참여한다.
+
+> NEVER
+> 
+> 트랜잭션을 사용하지 않는다는 의미이다. 기존 트랜잭션이 있으면 예외가 발생한다. 기존 트랜잭션도
+허용하지 않는 강한 부정의 의미로 이해하면 된다.
+> * 기존 트랜잭션 없음: 트랜잭션 없이 진행한다.
+> * 기존 트랜잭션 있음: ``IllegalTransactionStateException`` 예외 발생
+
+> NESTED
+> * 기존 트랜잭션 없음: 새로운 트랜잭션을 생성한다.
+> * 기존 트랜잭션 있음: 중첩 트랜잭션을 만든다.
+>   * 중첩 트랜잭션은 외부 트랜잭션의 영향을 받지만, 중첩 트랜잭션은 외부에 영향을 주지 않는다.
+>   * 중첩 트랜잭션이 롤백 되어도 외부 트랜잭션은 커밋할 수 있다.
+>   * 외부 트랜잭션이 롤백 되면 중첩 트랜잭션도 함께 롤백된다.
+> 
+> 참고
+>  * JDBC savepoint 기능을 사용한다. DB 드라이버에서 해당 기능을 지원하는지 확인이 필요하다.
+>  * 중첩 트랜잭션은 JPA에서는 사용할 수 없다.
+
+트랜잭션 전파와 옵션
+``isolation`` , ``timeout`` , ``readOnly``는 트랜잭션이 처음 시작될 때만 적용된다. 트랜잭션에 참여하는 경우에는 적용되지 않는다.
+예를 들어서 ``REQUIRED`` 를 통한 트랜잭션 시작, ``REQUIRES_NEW`` 를 통한 트랜잭션 시작 시점에만 적용된다.
